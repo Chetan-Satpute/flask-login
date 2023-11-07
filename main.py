@@ -18,7 +18,7 @@ user_collection = db.users
 session_collection = db.sessions
 
 # Should not create two session documents with same username
-session_collection.create_index([('username', pymongo.ASCENDING)], unique=True)
+session_collection.create_index([('username', pymongo.ASCENDING)], name='unique-username', unique=True)
 
 # Delete session after INACTIVE_SESSION_TIMEOUT seconds of inactivity
 session_collection.create_index([('last_accessed', pymongo.ASCENDING)],
