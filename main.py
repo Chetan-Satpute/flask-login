@@ -1,55 +1,68 @@
-from flask import Flask, redirect, render_template, request, session
+
 from datetime import datetime, timedelta
 from functools import wraps
+from flask import Flask, redirect, render_template, request, session
+from flask_session import Session
 import hashlib
 import pymongo
+
 
 app = Flask(__name__)
 app.secret_key = b'app-secret-key'
 
-# Inactive lifetime of session
-INACTIVE_SESSION_TIMEOUT = 10
-
 client = pymongo.MongoClient('localhost', 27017)
 
 db = client.app_database
+user_collection = db['userData']
 
-user_collection = db.users
-session_collection = db.sessions
+app.config['SESSION_MONGODB'] = client
+app.config['SESSION_MONGODB_DB'] = 'app_database'
+app.config['SESSION_TYPE'] = 'mongodb'
 
-# Should not create two session documents with same username
-session_collection.create_index([('username', pymongo.ASCENDING)], name='unique-username', unique=True)
 
-# Delete session after INACTIVE_SESSION_TIMEOUT seconds of inactivity
-session_collection.create_index([('last_accessed', pymongo.ASCENDING)],
-                                name='session-timeout', expireAfterSeconds=INACTIVE_SESSION_TIMEOUT, background=True)
+Session(app)
+
+# ========================================================================
+# Just to ensure a user is present in db
+
+user_collection.update_one(
+    {'username': 'Chetan'},
+    {'$set': {'username': 'Chetan', 'password': hashlib.sha256(
+        'Satpute'.encode('utf-8')).hexdigest()}},
+    upsert=True)
+
+# ========================================================================
+
+
+# Inactivity timeout
+# session expirs after 10 seconds of inactivity
+INACTIVE_SESSION_TIMEOUT = 10
+
+# Fixed timeout
+# 20 seconds session expiry time
+SESSION_EXPIRE_TIMEOUT = 20
 
 
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+
         username = session.get('username')
+        last_access_time = session.get('last_access_time')
+        expire_time = session.get('expire_time')
 
-        if username is None:
+        if username is None or last_access_time is None or expire_time is None:
+            session.clear()
             return render_template('landing_page.html')
 
-        # Do not consider session document last accessed before INACTIVE_SESSION_TIMEOUT seconds
-        last_valid_session_access_time = datetime.utcnow()
-        last_valid_session_access_time -= timedelta(
-            seconds=INACTIVE_SESSION_TIMEOUT)
+        current_time = datetime.utcnow()
+        inactive_duration = current_time - last_access_time
 
-        session_doc = session_collection.find_one({
-            'username': username,
-            'last_accessed': {'$gte': last_valid_session_access_time}})
-
-        if session_doc is None:
+        if inactive_duration.total_seconds() > INACTIVE_SESSION_TIMEOUT or current_time > expire_time:
+            session.clear()
             return render_template('landing_page.html')
 
-        # Update last accessed time in session document
-        session_collection.update_one(
-            {'username': username},
-            {'$set': {'username': username, 'last_accessed': datetime.utcnow()}},
-            upsert=True)
+        session['last_access_time'] = current_time
 
         return f(*args, **kwargs)
     return decorated_function
@@ -80,13 +93,11 @@ def login():
         if password_hash != user_doc['password']:
             return render_template('login_page.html', error='Incorrect Password!')
 
-        # Create a session document
-        session_collection.update_one(
-            {'username': username},
-            {'$set': {'username': username, 'last_accessed': datetime.utcnow()}},
-            upsert=True)
+        expire_time = datetime.utcnow() + timedelta(seconds=SESSION_EXPIRE_TIMEOUT)
 
         session['username'] = username
+        session['last_access_time'] = datetime.utcnow()
+        session['expire_time'] = expire_time
 
         return redirect('/')
 
@@ -97,15 +108,11 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
-    username = session.get('username')
-
     # Delete session
-    session_collection.delete_one({'username': username})
-    session.pop('username')
+    session.clear()
 
     return redirect('/')
 
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
-
