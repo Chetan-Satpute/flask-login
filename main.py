@@ -1,5 +1,4 @@
-
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, redirect, render_template, request, session
 import hashlib
@@ -17,9 +16,9 @@ client = pymongo.MongoClient('localhost', 27017)
 db = client.app_database
 user_collection = db['userData']
 
+app.config['SESSION_TYPE'] = 'mongodb'
 app.config['SESSION_MONGODB'] = client
 app.config['SESSION_MONGODB_DB'] = 'app_database'
-app.config['SESSION_TYPE'] = 'mongodb'
 
 
 Session(app)
