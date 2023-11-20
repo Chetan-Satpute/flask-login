@@ -1,10 +1,12 @@
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, tzinfo
 from functools import wraps
 from flask import Flask, redirect, render_template, request, session
-from flask_session import Session
 import hashlib
 import pymongo
+import pytz
+
+from sessions import Session
 
 
 app = Flask(__name__)
@@ -55,7 +57,7 @@ def login_required(f):
             session.clear()
             return render_template('landing_page.html')
 
-        current_time = datetime.utcnow()
+        current_time = pytz.utc.localize(datetime.utcnow())
         inactive_duration = current_time - last_access_time
 
         if inactive_duration.total_seconds() > INACTIVE_SESSION_TIMEOUT or current_time > expire_time:
@@ -93,10 +95,11 @@ def login():
         if password_hash != user_doc['password']:
             return render_template('login_page.html', error='Incorrect Password!')
 
-        expire_time = datetime.utcnow() + timedelta(seconds=SESSION_EXPIRE_TIMEOUT)
+        current_time = pytz.utc.localize(datetime.utcnow())
+        expire_time = current_time + timedelta(seconds=SESSION_EXPIRE_TIMEOUT)
 
         session['username'] = username
-        session['last_access_time'] = datetime.utcnow()
+        session['last_access_time'] = current_time
         session['expire_time'] = expire_time
 
         return redirect('/')
